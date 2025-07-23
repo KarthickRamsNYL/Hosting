@@ -122,7 +122,7 @@ client.on('message', async message => {
                 timestamp: m.timestamp
             }));
 
-            await axios.post('https://smartseasai.app.n8n.cloud/webhook/whatsapp-group', {
+            await axios.post('https://smartseasai.app.n8n.cloud/webhook-test/whatsapp-group', {
                 groupName: chat.name,
                 chatId,
                 triggeredBy: message.author || message.from,
