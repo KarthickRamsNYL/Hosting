@@ -8,7 +8,7 @@ const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const ADMIN_TOKEN = 'superSecret123'; // 🔒 Change this before production
+const ADMIN_TOKEN = 'superSecret123'; // 🔒 Change before production
 
 let currentQR = null;
 
@@ -25,20 +25,19 @@ const client = new Client({
 const typingMap = new Map();
 const questionTracker = new Map();
 
-// 📲 Display QR in terminal & store for web
+// 📲 Display QR in terminal & for browser
 client.on('qr', qr => {
     currentQR = qr;
     qrcode.generate(qr, { small: true });
     console.log("📲 Scan the QR code above with WhatsApp or visit /qr");
 });
 
-// ✅ WhatsApp ready
 client.on('ready', () => {
     console.log('✅ WhatsApp bot is connected and ready!');
     currentQR = null;
 });
 
-// 🔁 Reset session (for re-authentication)
+// 🔁 Reset session (admin only)
 app.get('/reset-session', (req, res) => {
     if (req.query.token !== ADMIN_TOKEN) {
         return res.status(403).send('❌ Unauthorized');
@@ -77,7 +76,7 @@ app.get('/qr', async (req, res) => {
     }
 });
 
-// 🧠 Message handler
+// 🧠 Group Message Handler
 client.on('message', async message => {
     try {
         const chat = await message.getChat();
@@ -93,11 +92,31 @@ client.on('message', async message => {
         }
 
         if (message.mentionedIds.includes(botId)) {
+            // 🟡 Follow-up Case
             if (questionTracker.has(chatId)) {
-                console.log(`🟡 Bot mentioned again in ${chat.name}, but question already recorded.`);
+                const stored = questionTracker.get(chatId);
+                const combinedQuestion = `First Question: ${stored.question}\nFollow-up: ${message.body}`;
+
+                const recentMessages = await chat.fetchMessages({ limit: 10 });
+                const formattedMessages = recentMessages.map(m => ({
+                    from: m.author || m.from,
+                    body: m.body,
+                    timestamp: m.timestamp
+                }));
+
+                await axios.post('https://smartseasai.app.n8n.cloud/webhook-test/whatsapp-group', {
+                    groupName: chat.name,
+                    chatId,
+                    triggeredBy: message.author || message.from,
+                    question: combinedQuestion,
+                    messages: formattedMessages
+                });
+
+                console.log(`🟡 Sent follow-up question from ${chat.name}`);
                 return;
             }
 
+            // ✅ First Question
             questionTracker.set(chatId, {
                 question: message.body,
                 from: message.author || message.from,
@@ -107,7 +126,7 @@ client.on('message', async message => {
             setTimeout(() => {
                 questionTracker.delete(chatId);
                 console.log(`🧹 Cleared tracked question after timeout for: ${chat.name}`);
-            }, 5 * 60 * 1000);
+            }, 5 * 60 * 1000); // 5 mins
 
             await chat.sendStateTyping();
             const typingInterval = setInterval(() => {
@@ -137,7 +156,7 @@ client.on('message', async message => {
     }
 });
 
-// 📩 Reply handler
+// 📩 Reply Handler from n8n
 app.post('/send-reply', async (req, res) => {
     const { chatId, message, buttonText } = req.body;
 
@@ -180,15 +199,15 @@ app.post('/send-reply', async (req, res) => {
     }
 });
 
-// 🌐 Root status
+// 🌐 Root
 app.get('/', (req, res) => {
     res.send('🟢 WhatsApp Bot is running!');
 });
 
-// 🚀 Start server
+// 🚀 Start Server
 app.listen(PORT, () => {
     console.log(`🌍 Express server running at http://localhost:${PORT}`);
 });
 
-// ▶️ Start WhatsApp client
+// ▶️ Initialize WhatsApp client
 client.initialize();
